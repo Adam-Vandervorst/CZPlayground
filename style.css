@@ -1,0 +1,99 @@
+:root {
+    --background-color: #faf9f8;
+    --medium-color: #aab;
+    --contrast-color: #333;
+    --highlight-color: #c22;
+    --contrast-text: rgb(15, 15, 15);
+    --faint-text: #778;
+    font-size: calc(10px + (16 - 10) * ((100vh - 370px) / (1000 - 370)));
+    font-family: system-ui, sans-serif;
+    zoom: 300%;
+}
+
+head.dark-mode + body {
+    --background-color: #222222;
+    --medium-color: #404044;
+    --contrast-color: #ccc;
+    --highlight-color: #811;
+    --contrast-text: rgb(240, 240, 240);
+    --faint-text: #666;
+}
+
+body {
+    margin: 0;
+    overflow: hidden;
+    font-family: system-ui, sans-serif;
+    background-color: var(--background-color);
+}
+
+.atom {
+    display: flex;
+}
+
+
+.tree-branch {
+    list-style-type: none;
+    padding-left: 0;
+    outline: 3px outset var(--medium-color);
+    display: flex;
+    margin: 3px;
+}
+
+.tree-branch > li {
+    display: flex;
+}
+
+.tree-leaf {
+    padding: .2em 1ch;
+    display: inline-block;
+    color: var(--faint-text);
+    margin: auto;
+}
+
+.tree-edit {
+    padding: .2em 1ch;
+    margin: auto;
+}
+
+.tree-edit > input {
+    border: 0;
+    width: 10ch;
+    font-size: 1rem;
+    background-color: var(--medium-color);
+}
+
+.tree-op {
+    font-weight: 500;
+}
+
+.tree-leaf:hover {
+    color: var(--highlight-color);
+}
+
+.pane {
+    padding: 1em;
+    border: 1px var(--medium-color);
+}
+
+.history {
+    height: 5em;
+}
+
+.command-list {
+    list-style-type: none;
+    height: 80%;
+    overflow-y: scroll;
+}
+
+.expr-list {
+    list-style-type: none;
+    height: 100%;
+}
+
+.cursor > .tree-leaf {
+    color: var(--highlight-color);
+}
+
+.cursor > .tree-branch {
+    outline-color: var(--highlight-color);
+}

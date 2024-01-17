@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>IRSE</title>
+    <meta charset="UTF-8">
+    <meta name="description" content="IRSE Recursive Structure Editor">
+    <meta name="viewport" content="width=device-width, minimum-scale=1.0, maximum-scale=1.0">
+    <link rel="stylesheet" href="style.css">
+    <script>
+        const get_domain_name = hn => hn.substring(hn.lastIndexOf('.', hn.lastIndexOf('.') - 1) + 1)
+        const domain_name = get_domain_name(window.location.hostname)
+
+        cookieStore.get('theme')
+            .then(c => c.value)
+            .catch(e => window.matchMedia('(prefers-color-scheme: dark)').matches && 'dark')
+            .then(v => (v == 'dark') && document.head.classList.toggle('dark-mode'))
+    </script>
+</head>
+<body>
+<div id="board"></div>
+<script src="js/target/scala-3.3.0/czplayground-fastopt/main.js"></script>
+<button class="show_js" onclick="cookieStore.set({name: 'theme', sameSite: 'none', domain: domain_name, value: document.head.classList.toggle('dark-mode') ? 'dark' : 'light'})">
+    switch theme
+</button>
+</body>
+</html>
