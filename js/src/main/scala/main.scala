@@ -126,7 +126,7 @@ extension (inline em: ExprMap[Unit])
 
 
 @main def m =
-//  val root = dom.document.querySelector("#board").asInstanceOf[dom.html.Div]
+  val root = dom.document.querySelector("#board") // .asInstanceOf[dom.html.Div]
 //  val tn = org.scalajs.dom.document.createTextNode("Test")
 //  root.appendChild(tn)
 
@@ -136,6 +136,7 @@ extension (inline em: ExprMap[Unit])
   val eq_id = DataParser.symbols.add("=")
   val transform_id = DataParser.symbols.add("transform")
   val ground_id = DataParser.symbols.add("ground")
+  em.update(Expr(Var(eq_id), DataParser.symbols.addV("root"), DataParser.data.addV(root)), ())
 
   val pfs = collection.mutable.Map.empty[Int, ExprMap[Unit] => ExprMap[Unit]]
   var pc = 10000
@@ -226,6 +227,10 @@ extension (inline em: ExprMap[Unit])
   println(ev.evalGrounded(DataParser.sexpr("(ground logged \"`x => {console.log('g', x); return x; }\")".iterator).get, ()).prettyListing(false))
   println(ev.evalGrounded(DataParser.sexpr("(logged `\"test\")".iterator).get, ()).prettyListing(false))
   println(ev.evalGrounded(DataParser.sexpr("(logged (+ (transform (CORNER $x) $x) (positions `3)))".iterator).get, ()).prettyListing(false))
+//  println(ev.evalGrounded(DataParser.sexpr("(ground update \"`(x, ys) => [x.replaceChildren(ys)]\")".iterator).get, ()).prettyListing(false))
+  println(ev.evalGrounded(DataParser.sexpr("(ground appendChild \"`(x, y) => [x.appendChild(y)]\")".iterator).get, ()).prettyListing(false))
+  println(ev.evalGrounded(DataParser.sexpr("(ground TextNode \"`x => [document.createTextNode(x)]\")".iterator).get, ()).prettyListing(false))
+  println(ev.evalGrounded(DataParser.sexpr("(appendChild root (TextNode `\"Test\"))".iterator).get, ()).prettyListing(false))
 
 
 //  println(ev.evalGrounded(DataParser.sexpr("(eval \"12\")".iterator).get, ()).prettyListing(false))
