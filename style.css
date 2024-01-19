@@ -26,6 +26,14 @@ body {
     background-color: var(--background-color);
 }
 
+#board {
+    white-space: pre-line;
+    margin: 1vw;
+    line-height: 200%;
+    color: var(--contrast-text);
+    font-size: .6em;
+}
+
 .atom {
     display: flex;
 }

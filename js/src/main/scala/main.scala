@@ -31,6 +31,26 @@ object DataParser extends Parser:
       em.update(last, ())
       last = sexprUnsafe(it)
 
+object GroundedPrinter extends Printer:
+  val newVarString: String = "◆"
+  def preVarString(x: Long): String = "⏴" + subscript(-x.toInt)
+  def repr(x: Any): String =
+    x.toString.flatMap {
+      case '"' => "\\\""
+      case '\\' => "\\\\"
+      case '\n' => "\\n"
+      case '\r' => "\\r"
+      case '\t' => "\\t"
+      case other => other.toString
+    }
+  def freeVarString(x: Long): String =
+    DataParser.symbols.get(x.toInt)
+      .orElse(DataParser.data.get(x.toInt).map(repr))
+      .getOrElse(x.toString)
+  val exprSep: String = " "
+  val exprOpen: String = "("
+  val exprClose: String = ")"
+
 //abstract class ValueEvaluationAlgorithms[V]:
 //  import ExprExamples.*
 //
@@ -136,6 +156,7 @@ extension (inline em: ExprMap[Unit])
   val eq_id = DataParser.symbols.add("=")
   val transform_id = DataParser.symbols.add("transform")
   val ground_id = DataParser.symbols.add("ground")
+  val pretty_id = DataParser.symbols.add("pretty")
   em.update(Expr(Var(eq_id), DataParser.symbols.addV("root"), DataParser.data.addV(root)), ())
 
   val pfs = collection.mutable.Map.empty[Int, ExprMap[Unit] => ExprMap[Unit]]
@@ -185,6 +206,10 @@ extension (inline em: ExprMap[Unit])
         }
         pc
       }
+    case `pretty_id` => space =>
+      ExprMap.from(space.keys.map(e1 =>
+        DataParser.data.addV(GroundedPrinter.sexpression(e1, colored=false)) -> ()
+      ))
     case `transform_id` => pattern =>
       ExprMap.from(pattern.items.map((e1, s1) =>
         pc += 1
@@ -196,41 +221,46 @@ extension (inline em: ExprMap[Unit])
     case pfs(handler) => handler
   }
 
-  DataParser.sexprs(
-    """
-      |(= A `"a1")
-      |(= A `"a2")
-      |(= B `"b1")
-      |(= B `"b2")
-      |(= (f $n) (S $n))
-      |(FONT_SIZE `12)
-      |(CORNER (Point2D `50 `10))
-      |(= (upto $n) (range `0 $n `1))
-      |(= (positions $n) (Point2D `0 (* (transform (FONT_SIZE $x) (* `1.2 $x)) (upto $n))))
-      |(= (+ (Point2D $x1 $y1) (Point2D $x2 $y2)) (Point2D (+ $x1 $x2) (+ $y1 $y2)))
-      |""".stripMargin)
+//  DataParser.sexprs(
+//    """
+//      |(= A `"a1")
+//      |(= A `"a2")
+//      |(= B `"b1")
+//      |(= B `"b2")
+//      |(= (f $n) (S $n))
+//      |(FONT_SIZE `12)
+//      |(CORNER (Point2D `50 `10))
+//      |(= (upto $n) (range `0 $n `1))
+//      |(= (positions $n) (Point2D `0 (* (transform (FONT_SIZE $x) (* `1.2 $x)) (upto $n))))
+//      |(= (+ (Point2D $x1 $y1) (Point2D $x2 $y2)) (Point2D (+ $x1 $x2) (+ $y1 $y2)))
+//      |""".stripMargin)
 
-  println(ev.evalGrounded(DataParser.sexpr("(ground * \"`(x, y) => [x*y]\")".iterator).get, ()).prettyListing(false))
-  println(ev.evalGrounded(DataParser.sexpr("(ground + \"`(x, y) => [x+y]\")".iterator).get, ()).prettyListing(false))
-  println(ev.evalGrounded(DataParser.sexpr("(* `.1 `.05)".iterator).get, ()).prettyListing(false))
-  println(ev.evalGrounded(DataParser.sexpr("(ground range \"`(start, stop, step) => Array.from({ length: (stop - start) / step + 1}, (_, i) => start + (i * step))\")".iterator).get, ()).prettyListing(false))
-  println(ev.evalGrounded(DataParser.sexpr("(range `0 `10 `1)".iterator).get, ()).prettyListing(false))
-//  println(ev.evalGrounded(DataParser.sexpr("(+ A B)".iterator).getOrElse(throw RuntimeException("no results")), ()).prettyListing(false))
-//  println(em.prettyListing())
-//  println(ev.evalGrounded(DataParser.sexpr("(f `3)".iterator).get, ()).prettyListing(false))
-//  println(ev.evalGrounded(DataParser.sexpr("(* `1.2 `12)".iterator).get, ()).prettyListing(false))
-//  println(ev.evalGrounded(DataParser.sexpr("(transform (FONT_SIZE $x) (* `1.2 $x))".iterator).getOrElse(throw RuntimeException("no results")), ()).prettyListing(false))
-  println(ev.evalGrounded(DataParser.sexpr("(transform (FONT_SIZE $x) (* `1.2 $x))".iterator).getOrElse(throw RuntimeException("no results")), ()).prettyListing(false))
-//  println(ev.evalGrounded(DataParser.sexpr("(* `3.14 (range `0 $n `1))".iterator).get, ()).prettyListing(false))
-//  println(ev.evalGrounded(DataParser.sexpr("(upto `3)".iterator).get, ()).prettyStructuredSet())
-  println(ev.evalGrounded(DataParser.sexpr("(positions `3)".iterator).get, ()).prettyListing(false))
-  println(ev.evalGrounded(DataParser.sexpr("(ground logged \"`x => {console.log('g', x); return x; }\")".iterator).get, ()).prettyListing(false))
-  println(ev.evalGrounded(DataParser.sexpr("(logged `\"test\")".iterator).get, ()).prettyListing(false))
-  println(ev.evalGrounded(DataParser.sexpr("(logged (+ (transform (CORNER $x) $x) (positions `3)))".iterator).get, ()).prettyListing(false))
-//  println(ev.evalGrounded(DataParser.sexpr("(ground update \"`(x, ys) => [x.replaceChildren(ys)]\")".iterator).get, ()).prettyListing(false))
-  println(ev.evalGrounded(DataParser.sexpr("(ground appendChild \"`(x, y) => [x.appendChild(y)]\")".iterator).get, ()).prettyListing(false))
-  println(ev.evalGrounded(DataParser.sexpr("(ground TextNode \"`x => [document.createTextNode(x)]\")".iterator).get, ()).prettyListing(false))
-  println(ev.evalGrounded(DataParser.sexpr("(appendChild root (TextNode `\"Test\"))".iterator).get, ()).prettyListing(false))
+  def evalAdd(s: String): Unit =
+    val parsed = DataParser.sexpr(s.iterator).get
+    em.update(parsed, ())
+    val res = ev.evalGrounded(parsed, ())
+    println(res.prettyListing(false))
+
+//  evalAdd("(ground * \"`(x, y) => [x*y]\")")
+  evalAdd("(ground + \"`(x, y) => [x+y]\")")
+//  evalAdd("(* `.1 `.05)")
+//  evalAdd("(ground range \"`(start, stop, step) => Array.from({ length: (stop - start) / step + 1}, (_, i) => start + (i * step))\")")
+//  evalAdd("(range `0 `10 `1)")
+//  evalAdd("(+ A B)")
+//  evalAdd("(f `3)")
+//  evalAdd("(* `1.2 `12)")
+//  evalAdd("(transform (FONT_SIZE $x) (* `1.2 $x))")
+//  evalAdd("(* `3.14 (range `0 $n `1))")
+//  evalAdd("(upto `3)")
+//  evalAdd("(positions `3)")
+//  evalAdd("(ground logged \"`x => {console.log('g', x); return x; }\")")
+//  evalAdd("(logged `\"test\")")
+//  evalAdd("(logged (+ (transform (CORNER $x) $x) (positions `3)))")
+//  evalAdd("(ground update \"`(x, ys) => [x.replaceChildren(ys)]\")")
+  evalAdd("(ground appendChild \"`(x, y) => [x.appendChild(y)]\")")
+  evalAdd("(ground TextNode \"`x => [document.createTextNode(x)]\")")
+//  evalAdd("(appendChild root (TextNode `\"Test\"))")
+  evalAdd("(appendChild root (TextNode (+ (pretty (transform $x $x)) `'\\n')))")
 
 
 //  println(ev.evalGrounded(DataParser.sexpr("(eval \"12\")".iterator).get, ()).prettyListing(false))
