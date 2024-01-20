@@ -1,6 +1,8 @@
 import org.scalajs.dom
 
 import scala.scalajs.js
+import js.JSConverters._
+
 
 import be.adamv.cz2.*
 
@@ -16,12 +18,17 @@ object DataParser extends Parser:
     if s.head == '"' then
       if s.tail.head == '`' then
         try
-          data.addV(js.eval(s.tail.tail.init).asInstanceOf[js.Any])
+          val v = js.eval(s.tail.tail.init).asInstanceOf[js.Any]
+          if js.isUndefined(v) then throw RuntimeException(s"parsing ${s} is undefined")
+          data.addV(v)
         catch
           case e: js.JavaScriptException => throw RuntimeException(f"${e.exception} received while parsing $s")
       else symbols.addV(s)
     else
-      if s.head == '`' then data.addV(js.eval(s.tail).asInstanceOf[js.Any])
+      if s.head == '`' then
+        val v = js.eval(s.tail).asInstanceOf[js.Any]
+        if js.isUndefined(v) then throw RuntimeException(s"parsing ${s} is undefined")
+        data.addV(v)
       else symbols.addV(s)
 
   def sexprs(s: String)(using em: ExprMap[Unit]): Unit =
@@ -129,20 +136,36 @@ object GroundedPrinter extends Printer:
 
 
 extension (inline em: ExprMap[Unit])
-  inline def varMap(inline f: Int => Int): ExprMap[Unit] =
-    val ks = em.em.vars.keys.toArray.map(x => f(x.toInt).toLong)
-    val vs = Array.fill[Unit](ks.length)(())
-    ExprMap(EM(ExprMap(), collection.mutable.LongMap.fromZip[Unit](ks, vs)))
+  inline def varsIt: Iterator[Int] = if em.em eq null then Iterator.empty else em.em.vars.keys.iterator.map(_.toInt)
 
-  inline def varFlatMap(inline f: Int => IterableOnce[Int]): ExprMap[Unit] =
-    val ks = em.em.vars.keys.toArray.flatMap(x => f(x.toInt).iterator.map(_.toLong))
-    val vs = Array.fill[Unit](ks.length)(())
-    ExprMap(EM(ExprMap(), collection.mutable.LongMap.fromZip[Unit](ks, vs)))
+  inline def varMap(inline f: Int => Int, inline maintain: Boolean): ExprMap[Unit] =
+    if em.em eq null then em
+    else
+      val ks = em.em.vars.keys.toArray.map(x => f(x.toInt).toLong)
+      val vs = Array.fill[Unit](ks.length)(())
+      val lm = collection.mutable.LongMap.fromZip[Unit](ks, vs)
+      inline if maintain then ExprMap(EM(em.em.apps, lm))
+      else ExprMap(EM(ExprMap(), lm))
 
-  inline def varFilter(inline f: Int => Boolean): ExprMap[Unit] =
-    val ks = em.em.vars.keys.toArray.filter(x => f(x.toInt))
-    val vs = Array.fill[Unit](ks.length)(())
-    ExprMap(EM(em.em.apps, collection.mutable.LongMap.fromZip[Unit](ks, vs)))
+
+  inline def varFlatMap(inline f: Int => IterableOnce[Int], inline maintain: Boolean): ExprMap[Unit] =
+    if em.em eq null then em
+    else
+      val ks = em.em.vars.keys.toArray.flatMap(x => f(x.toInt).iterator.map(_.toLong))
+      val vs = Array.fill[Unit](ks.length)(())
+      val lm = collection.mutable.LongMap.fromZip[Unit](ks, vs)
+      inline if maintain then ExprMap(EM(em.em.apps, lm))
+      else ExprMap(EM(ExprMap(), lm))
+
+  inline def varFilter(inline f: Int => Boolean, inline maintain: Boolean): ExprMap[Unit] =
+    if em.em eq null then em
+    else
+      val ks = em.em.vars.keys.toArray.filter(x => f(x.toInt))
+      val vs = Array.fill[Unit](ks.length)(())
+      val lm = collection.mutable.LongMap.fromZip[Unit](ks, vs)
+      inline if maintain then ExprMap(EM(em.em.apps, lm))
+      else ExprMap(EM(ExprMap(), lm))
+
 
 
 @main def m =
@@ -162,50 +185,85 @@ extension (inline em: ExprMap[Unit])
   val pfs = collection.mutable.Map.empty[Int, ExprMap[Unit] => ExprMap[Unit]]
   var pc = 10000
   given PartialFunction[Int, ExprMap[Unit] => ExprMap[Unit]] = {
-    case `ground_id` => _.varMap { i => // name
+    case `ground_id` => _.varMap({ i => // name
         pc += 1
-//        val name = DataParser.symbols.get(i).get.tail.init
-        pfs(pc) = _.varMap { j => // function
+        val name = DataParser.symbols.get(i).get
+        println(f"grounding ${name} ${i}")
+        val cb_id = pc
+        pfs(pc) = cb =>
+          println(f"cb ${cb.prettyStructuredSet()} ${cb_id}")
+          cb.varFilter(!DataParser.data.couldContain(_), true).execute(Iterator.single(Instr.Apply(cb_id))) union cb.varFilter(DataParser.data.couldContain, false).varMap({ j => // function
           val ev = DataParser.data.get(j).get
+          println(f"got ${DataParser.data.get(j)} for ${j}")
+          if js.typeOf(ev) != "function" then
+            println("error")
+            println(pfs)
+            println(DataParser.symbols.indexToValue)
+            println(DataParser.data.indexToValue)
           assert(js.typeOf(ev) == "function")
           val func = ev.asInstanceOf[js.Function]
-          val base = pfs.getOrElse(i, _ => ExprMap())
-          val recurrence = func.length
-          pfs(i) = arg1 => arg1.varFilter(!DataParser.data.couldContain(_)).execute(Iterator.single(Instr.Apply(i))) union arg1.varFlatMap { k =>
-            if !DataParser.data.couldContain(k) then Iterator.single(k)
-            else
-              val kv = DataParser.data.get(k).get
-              if recurrence == 1 then
-                func.call(js.Object(), kv).asInstanceOf[js.Array[js.Any]].map(DataParser.data.add)
-              else
+//          val base = pfs.getOrElse(i, _ => ExprMap())
+          pfs(i) = func.length match
+            case 1 =>
+              println(s"lifting single argument ${name}")
+              arg1 => arg1.varFilter(!DataParser.data.couldContain(_), true).execute(Iterator.single(Instr.Apply(i))) union {
+              val ar1 = arg1.varsIt.collect{ case k if DataParser.data.couldContain(k) => DataParser.data.get(k).get }.toJSArray
+              val obj = func.call(js.Object(), ar1)
+//              println(s"function call ${func} ${name} on ${ar1} resulted in ${obj} ${js.typeOf(obj)}")
+              val ks = obj.asInstanceOf[js.Array[js.Any]].map(v =>
+                if js.isUndefined(v) then throw RuntimeException(s"got undefined executing ${func} ${name} on ${ar1} ${js.typeOf(ar1(0))}")
+                DataParser.data.add(v).toLong
+              )
+              val vs = Array.fill[Unit](ks.length)(())
+              val lm = collection.mutable.LongMap.fromZip[Unit](ks, vs)
+              ExprMap(EM(ExprMap(), lm))
+            }
+            case 2 =>
+              println(s"lifting two arguments ${name}")
+              arg1 => {
+              pc += 1
+              val arg2_id = pc
+              println(s"${name} received argument 1 ${arg1.keys.map(GroundedPrinter.sexpression(_)).mkString("; ")}, now waiting on ${arg2_id}")
+              pfs(pc) = arg2 => arg2.varFilter(!DataParser.data.couldContain(_), true).execute(Iterator.single(Instr.Apply(arg2_id))) union {
+                println(s"${name} received argument 2 ${arg2.keys.map(GroundedPrinter.sexpression(_)).mkString("; ")}")
+                val ar1 = arg1.varsIt.collect{ case k if DataParser.data.couldContain(k) => DataParser.data.get(k).get }.toJSArray
+                val ar2 = arg2.varsIt.collect{ case k if DataParser.data.couldContain(k) => DataParser.data.get(k).get }.toJSArray
+                val jks = func.call(js.Object(), ar1, ar2).asInstanceOf[js.Array[js.Any]]
+                println(s"${name}(arg1=${ar1}, arg2=${ar2}) = ${jks}")
+                val ks = jks.map(v => DataParser.data.add(v).toLong)
+                val vs = Array.fill[Unit](ks.length)(())
+                val lm = collection.mutable.LongMap.fromZip[Unit](ks, vs)
+                ExprMap(EM(ExprMap(), lm))
+              }
+              arg1.varFilter(!DataParser.data.couldContain(_), true).execute(Iterator.single(Instr.Apply(i))) union ExprMap.single(Var(pc), ())
+            }
+            case 3 =>
+              println(s"lifting three arguments ${name}")
+              arg1 => {
+              pc += 1
+              val arg2_id = pc
+              pfs(pc) = arg2 => {
                 pc += 1
-                val arg2_id = pc
-                pfs(pc) = arg2 => arg2.varFilter(!DataParser.data.couldContain(_)).execute(Iterator.single(Instr.Apply(arg2_id))) union arg2.varFlatMap { kk =>
-                  if !DataParser.data.couldContain(kk) then Iterator.empty
-                  else
-                    val kkv = DataParser.data.get(kk).get
-                    if recurrence == 2 then
-                      func.call(js.Object(), kv, kkv).asInstanceOf[js.Array[js.Any]].map(DataParser.data.add)
-                    else
-                      pc += 1
-                      val arg3_id = pc
-                      pfs(pc) = arg3 => arg3.varFilter(!DataParser.data.couldContain(_)).execute(Iterator.single(Instr.Apply(arg3_id))) union arg3.varFlatMap { kkk =>
-                        if !DataParser.data.couldContain(kkk) then Iterator.single(kkk)
-                        else
-                          val kkkv = DataParser.data.get(kkk).get
-                          if recurrence == 3 then
-                            func.call(js.Object(), kv, kkv, kkkv).asInstanceOf[js.Array[js.Any]].map(DataParser.data.add)
-                          else
-                            throw RuntimeException("Not implemented arity 4")
-                      }
-                      Iterator.single(pc)
+                val arg3_id = pc
+                pfs(pc) = arg3 => {
+                  arg3.varFilter(!DataParser.data.couldContain(_), true).execute(Iterator.single(Instr.Apply(arg3_id))) union {
+                    val ar1 = arg1.varsIt.collect { case k if DataParser.data.couldContain(k) => DataParser.data.get(k).get }.toJSArray
+                    val ar2 = arg2.varsIt.collect { case k if DataParser.data.couldContain(k) => DataParser.data.get(k).get }.toJSArray
+                    val ar3 = arg3.varsIt.collect { case k if DataParser.data.couldContain(k) => DataParser.data.get(k).get }.toJSArray
+                    val ks = func.call(js.Object(), ar1, ar2, ar3).asInstanceOf[js.Array[js.Any]].map(v => DataParser.data.add(v).toLong)
+                    val vs = Array.fill[Unit](ks.length)(())
+                    val lm = collection.mutable.LongMap.fromZip[Unit](ks, vs)
+                    ExprMap(EM(ExprMap(), lm))
+                  }
                 }
-                Iterator.single(pc)
-          }
+                arg2.varFilter(!DataParser.data.couldContain(_), true).execute(Iterator.single(Instr.Apply(arg2_id))) union ExprMap.single(Var(pc), ())
+              }
+              arg1.varFilter(!DataParser.data.couldContain(_), true).execute(Iterator.single(Instr.Apply(i))) union ExprMap.single(Var(pc), ())
+            }
           j
-        }
+        }, false)
         pc
-      }
+      }, false)
     case `pretty_id` => space =>
       ExprMap.from(space.keys.map(e1 =>
         DataParser.data.addV(GroundedPrinter.sexpression(e1, colored=false)) -> ()
@@ -221,46 +279,83 @@ extension (inline em: ExprMap[Unit])
     case pfs(handler) => handler
   }
 
-//  DataParser.sexprs(
-//    """
-//      |(= A `"a1")
-//      |(= A `"a2")
-//      |(= B `"b1")
-//      |(= B `"b2")
-//      |(= (f $n) (S $n))
-//      |(FONT_SIZE `12)
-//      |(CORNER (Point2D `50 `10))
-//      |(= (upto $n) (range `0 $n `1))
-//      |(= (positions $n) (Point2D `0 (* (transform (FONT_SIZE $x) (* `1.2 $x)) (upto $n))))
-//      |(= (+ (Point2D $x1 $y1) (Point2D $x2 $y2)) (Point2D (+ $x1 $x2) (+ $y1 $y2)))
-//      |""".stripMargin)
+  DataParser.sexprs(
+    """
+      |(= A `"a1")
+      |(= A `"a2")
+      |(= B `"b1")
+      |(= B `"b2")
+      |(= (f $n) (S $n))
+      |(FONT_SIZE `12)
+      |(CORNER (Point2D `50 `10))
+      |(= (upto $n) (range `0 $n `1))
+      |(= (positions $n) (Point2D `0 (* (transform (FONT_SIZE $x) (* `1.2 $x)) (upto $n))))
+      |(= (++ (Point2D $x1 $y1) (Point2D $x2 $y2)) (Point2D (+ $x1 $x2) (+ $y1 $y2)))
+      |""".stripMargin)
+
+
+  var counter = 0
 
   def evalAdd(s: String): Unit =
     val parsed = DataParser.sexpr(s.iterator).get
-    em.update(parsed, ())
+    println(s"parsed ${GroundedPrinter.sexpression(parsed)}")
+    em.update(Expr(DataParser.symbols.addV("userOp"), DataParser.data.addV(counter), DataParser.symbols.addV("evalAdd"), parsed), ())
     val res = ev.evalGrounded(parsed, ())
-    println(res.prettyListing(false))
+    if res.em ne null then em.em = res.em union em.em
+    println(f"evaluated ${res.keys.map(GroundedPrinter.sexpression(_)).mkString("; ")}")
+    counter += 1
 
-//  evalAdd("(ground * \"`(x, y) => [x*y]\")")
-  evalAdd("(ground + \"`(x, y) => [x+y]\")")
-//  evalAdd("(* `.1 `.05)")
-//  evalAdd("(ground range \"`(start, stop, step) => Array.from({ length: (stop - start) / step + 1}, (_, i) => start + (i * step))\")")
-//  evalAdd("(range `0 `10 `1)")
-//  evalAdd("(+ A B)")
-//  evalAdd("(f `3)")
-//  evalAdd("(* `1.2 `12)")
-//  evalAdd("(transform (FONT_SIZE $x) (* `1.2 $x))")
-//  evalAdd("(* `3.14 (range `0 $n `1))")
-//  evalAdd("(upto `3)")
-//  evalAdd("(positions `3)")
-//  evalAdd("(ground logged \"`x => {console.log('g', x); return x; }\")")
-//  evalAdd("(logged `\"test\")")
-//  evalAdd("(logged (+ (transform (CORNER $x) $x) (positions `3)))")
-//  evalAdd("(ground update \"`(x, ys) => [x.replaceChildren(ys)]\")")
-  evalAdd("(ground appendChild \"`(x, y) => [x.appendChild(y)]\")")
-  evalAdd("(ground TextNode \"`x => [document.createTextNode(x)]\")")
-//  evalAdd("(appendChild root (TextNode `\"Test\"))")
-  evalAdd("(appendChild root (TextNode (+ (pretty (transform $x $x)) `'\\n')))")
+  evalAdd("(ground lift \"`fs => fs.map(f => xs => xs.map(f))\")")
+  evalAdd("(ground lift_ \"`fs => fs.map(f => xs => xs.flatMap(f))\")")
+  evalAdd("(ground lift2 \"`fs => fs.map(f => (xs, ys) => xs.flatMap(x => ys.map(y => f(x, y))))\")")
+  evalAdd("(ground lift2_ \"`fs => fs.map(f => (xs, ys) => xs.flatMap(x => ys.flatMap(y => f(x, y))))\")")
+  evalAdd("(ground lift3 \"`fs => fs.map(f => (xs, ys, zs) => xs.flatMap(x => ys.flatMap(y => zs.map(z => f(x, y, z)))))\")")
+  evalAdd("(ground lift3_ \"`fs => fs.map(f => (xs, ys, zs) => xs.flatMap(x => ys.flatMap(y => zs.flatMap(z => f(x, y, z)))))\")")
+  evalAdd("(ground ² (lift \"`x => x*x\"))")
+  evalAdd("(² `.1)")
+  evalAdd("(ground + (lift2 \"`(x, y) => x+y\"))")
+  evalAdd("(ground * (lift2 \"`(x, y) => x*y\"))")
+  evalAdd("(* `.1 `.05)")
+  evalAdd("(ground range (lift3_ \"`(start, stop, step) => Array.from({ length: (stop - start) / step }, (_, i) => start + (i * step))\"))")
+  evalAdd("(range `0 `10 `1)")
+  evalAdd("(ground count \"`xs => [xs.length]\")")
+  evalAdd("(count (range `0 `10 `1))")
+  evalAdd("(ground randomInt (lift2 \"`(min, max) => min + Math.floor(Math.random() * (max - min + 1))\"))")
+  evalAdd("(randomInt `1 `100)")
+  evalAdd("""(ground sample "`(ns, ar) => ns.flatMap(n => {
+            |  const sample = ar.slice();
+            |  const last = ar.length - 1;
+            |  for (let index = 0; index < n; index++) {
+            |    const rand = index + Math.floor(Math.random() * (last - index + 1));
+            |    const temp = sample[index];
+            |    sample[index] = sample[rand];
+            |    sample[rand] = temp;
+            |  }
+            |  return sample.slice(0, n);
+            |})")""".stripMargin)
+  evalAdd("(sample `3 (range `0 `10 `1))")
+  evalAdd("(+ A B)")
+  evalAdd("(f `3)")
+  evalAdd("(* `1.2 `12)")
+  evalAdd("(* `3.14 (range `0 $n `1))")
+  evalAdd("(upto `3)")
+  evalAdd("(² (upto `3))")
+  evalAdd("(* `1.5 (upto `3))")
+  evalAdd("(Q (upto `3) `1.5)")
+  evalAdd("(* (upto `3) `1.5)")
+  evalAdd("(transform (FONT_SIZE $x) (* `1.2 $x))")
+  evalAdd("(* (transform (FONT_SIZE $x) (* `1.2 $x)) (upto `3))")
+  evalAdd("(positions `3)")
+  evalAdd("(ground logged \"`xs => {console.log('g', xs); return xs; }\")")
+  evalAdd("(logged `\"test\")")
+  evalAdd("(transform (CORNER $x) $x)")
+  evalAdd("(++ (transform (CORNER $x) $x) (positions `3))")
+//  evalAdd("(ground update \"`(xs, ys) => xs.forEach(x => x.replaceChildren(ys)) || xs\")")
+  evalAdd("(ground appendChild (lift2 \"`(x, y) => x.appendChild(y)\"))")
+//  evalAdd("(ground TextNode (lift \"`x => document.createTextNode(x)\"))")
+  evalAdd("(ground TextNode (lift \"`x => document.createTextNode(x)\"))")
+  evalAdd("(appendChild root (TextNode `\"Test\"))")
+  evalAdd("(appendChild root (TextNode (+ (pretty (transform (userOp $i $m $x) $x)) `'\\n')))")
 
 
 //  println(ev.evalGrounded(DataParser.sexpr("(eval \"12\")".iterator).get, ()).prettyListing(false))
