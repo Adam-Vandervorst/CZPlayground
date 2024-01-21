@@ -1,10 +1,10 @@
 import org.scalajs.dom
 
 import scala.scalajs.js
-import js.JSConverters._
-
-
+import js.JSConverters.*
 import be.adamv.cz2.*
+import org.scalajs.dom.KeyboardEvent
+import org.scalajs.dom.html.Canvas
 
 
 object DataParser extends Parser:
@@ -26,9 +26,12 @@ object DataParser extends Parser:
       else symbols.addV(s)
     else
       if s.head == '`' then
-        val v = js.eval(s.tail).asInstanceOf[js.Any]
-        if js.isUndefined(v) then throw RuntimeException(s"parsing ${s} is undefined")
-        data.addV(v)
+        try
+          val v = js.eval(s.tail).asInstanceOf[js.Any]
+          if js.isUndefined(v) then throw RuntimeException(s"parsing ${s} is undefined")
+          data.addV(v)
+        catch
+          case e: js.JavaScriptException => throw RuntimeException(f"${e.exception} received while parsing $s")
       else symbols.addV(s)
 
   def sexprs(s: String)(using em: ExprMap[Unit]): Unit =
@@ -169,9 +172,18 @@ extension (inline em: ExprMap[Unit])
 
 
 @main def m =
-  val root = dom.document.querySelector("#board") // .asInstanceOf[dom.html.Div]
-//  val tn = org.scalajs.dom.document.createTextNode("Test")
-//  root.appendChild(tn)
+  val root = dom.document.querySelector("#board")
+
+  dom.window.asInstanceOf[js.Dynamic].ctx = root.firstElementChild.asInstanceOf[Canvas].getContext("2d")
+
+  var is_fullscreen = false;
+  dom.window.addEventListener("keydown", k => {
+    println(k);
+    if k.asInstanceOf[KeyboardEvent].key == "f" then
+      if is_fullscreen then dom.document.exitFullscreen()
+      else dom.window.asInstanceOf[js.Dynamic].ctx.canvas.requestFullscreen()
+      is_fullscreen = !is_fullscreen
+  })
 
   val ev = ValueEvaluationAlgorithms.ignore[Unit]
   given em: ExprMap[Unit]()
@@ -209,7 +221,7 @@ extension (inline em: ExprMap[Unit])
               arg1 => arg1.varFilter(!DataParser.data.couldContain(_), true).execute(Iterator.single(Instr.Apply(i))) union {
               val ar1 = arg1.varsIt.collect{ case k if DataParser.data.couldContain(k) => DataParser.data.get(k).get }.toJSArray
               val obj = func.call(js.Object(), ar1)
-//              println(s"function call ${func} ${name} on ${ar1} resulted in ${obj} ${js.typeOf(obj)}")
+              println(s"${name}(arg1=${ar1}) = ${obj}")
               val ks = obj.asInstanceOf[js.Array[js.Any]].map(v =>
                 if js.isUndefined(v) then throw RuntimeException(s"got undefined executing ${func} ${name} on ${ar1} ${js.typeOf(ar1(0))}")
                 DataParser.data.add(v).toLong
@@ -223,13 +235,13 @@ extension (inline em: ExprMap[Unit])
               arg1 => {
               pc += 1
               val arg2_id = pc
-              println(s"${name} received argument 1 ${arg1.keys.map(GroundedPrinter.sexpression(_)).mkString("; ")}, now waiting on ${arg2_id}")
+//              println(s"${name} received argument 1 ${arg1.keys.map(GroundedPrinter.sexpression(_)).mkString("; ")}, now waiting on ${arg2_id}")
               pfs(pc) = arg2 => arg2.varFilter(!DataParser.data.couldContain(_), true).execute(Iterator.single(Instr.Apply(arg2_id))) union {
-                println(s"${name} received argument 2 ${arg2.keys.map(GroundedPrinter.sexpression(_)).mkString("; ")}")
+//                println(s"${name} received argument 2 ${arg2.keys.map(GroundedPrinter.sexpression(_)).mkString("; ")}")
                 val ar1 = arg1.varsIt.collect{ case k if DataParser.data.couldContain(k) => DataParser.data.get(k).get }.toJSArray
                 val ar2 = arg2.varsIt.collect{ case k if DataParser.data.couldContain(k) => DataParser.data.get(k).get }.toJSArray
                 val jks = func.call(js.Object(), ar1, ar2).asInstanceOf[js.Array[js.Any]]
-                println(s"${name}(arg1=${ar1}, arg2=${ar2}) = ${jks}")
+//                println(s"${name}(arg1=${ar1}, arg2=${ar2}) = ${jks}")
                 val ks = jks.map(v => DataParser.data.add(v).toLong)
                 val vs = Array.fill[Unit](ks.length)(())
                 val lm = collection.mutable.LongMap.fromZip[Unit](ks, vs)
@@ -260,11 +272,40 @@ extension (inline em: ExprMap[Unit])
               }
               arg1.varFilter(!DataParser.data.couldContain(_), true).execute(Iterator.single(Instr.Apply(i))) union ExprMap.single(Var(pc), ())
             }
+            case 4 =>
+              arg1 => {
+              pc += 1
+              val arg2_id = pc
+              pfs(pc) = arg2 => {
+                pc += 1
+                val arg3_id = pc
+                pfs(pc) = arg3 => {
+                  pc += 1
+                  val arg4_id = pc
+                  pfs(pc) = arg4 => {
+                    arg4.varFilter(!DataParser.data.couldContain(_), true).execute(Iterator.single(Instr.Apply(arg4_id))) union {
+                      val ar1 = arg1.varsIt.collect { case k if DataParser.data.couldContain(k) => DataParser.data.get(k).get }.toJSArray
+                      val ar2 = arg2.varsIt.collect { case k if DataParser.data.couldContain(k) => DataParser.data.get(k).get }.toJSArray
+                      val ar3 = arg3.varsIt.collect { case k if DataParser.data.couldContain(k) => DataParser.data.get(k).get }.toJSArray
+                      val ar4 = arg4.varsIt.collect { case k if DataParser.data.couldContain(k) => DataParser.data.get(k).get }.toJSArray
+                      val ks = func.call(js.Object(), ar1, ar2, ar3, ar4).asInstanceOf[js.Array[js.Any]].map(v => DataParser.data.add(v).toLong)
+                      val vs = Array.fill[Unit](ks.length)(())
+                      val lm = collection.mutable.LongMap.fromZip[Unit](ks, vs)
+                      ExprMap(EM(ExprMap(), lm))
+                    }
+                  }
+                  arg3.varFilter(!DataParser.data.couldContain(_), true).execute(Iterator.single(Instr.Apply(arg3_id))) union ExprMap.single(Var(pc), ())
+                }
+                arg2.varFilter(!DataParser.data.couldContain(_), true).execute(Iterator.single(Instr.Apply(arg2_id))) union ExprMap.single(Var(pc), ())
+              }
+              arg1.varFilter(!DataParser.data.couldContain(_), true).execute(Iterator.single(Instr.Apply(i))) union ExprMap.single(Var(pc), ())
+            }
           j
         }, false)
         pc
       }, false)
     case `pretty_id` => space =>
+//      println(s"pretty ${space.keys.map(GroundedPrinter.sexpression(_)).mkString("; ")}")
       ExprMap.from(space.keys.map(e1 =>
         DataParser.data.addV(GroundedPrinter.sexpression(e1, colored=false)) -> ()
       ))
@@ -279,31 +320,26 @@ extension (inline em: ExprMap[Unit])
     case pfs(handler) => handler
   }
 
-  DataParser.sexprs(
-    """
-      |(= A `"a1")
-      |(= A `"a2")
-      |(= B `"b1")
-      |(= B `"b2")
-      |(= (f $n) (S $n))
-      |(FONT_SIZE `12)
-      |(CORNER (Point2D `50 `10))
-      |(= (upto $n) (range `0 $n `1))
-      |(= (positions $n) (Point2D `0 (* (transform (FONT_SIZE $x) (* `1.2 $x)) (upto $n))))
-      |(= (++ (Point2D $x1 $y1) (Point2D $x2 $y2)) (Point2D (+ $x1 $x2) (+ $y1 $y2)))
-      |""".stripMargin)
 
 
+
+//(= (draw (Text $t (Point2D $x $y))) (fillText (pretty $t) $x (* `15 $y)))
   var counter = 0
 
   def evalAdd(s: String): Unit =
     val parsed = DataParser.sexpr(s.iterator).get
-    println(s"parsed ${GroundedPrinter.sexpression(parsed)}")
-    em.update(Expr(DataParser.symbols.addV("userOp"), DataParser.data.addV(counter), DataParser.symbols.addV("evalAdd"), parsed), ())
+    em.update(Expr(DataParser.symbols.addV("userOp"), DataParser.data.addV(counter), DataParser.symbols.addV("evalAdd"), DataParser.data.addV(s)), ())
     val res = ev.evalGrounded(parsed, ())
     if res.em ne null then em.em = res.em union em.em
     println(f"evaluated ${res.keys.map(GroundedPrinter.sexpression(_)).mkString("; ")}")
     counter += 1
+
+  """
+    |(= (positions $n) (Point2D `0 (* (transform (FONT_SIZE $x) (* `1.2 $x)) (upto $n))))
+    |(= (++ (Point2D $x1 $y1) (Point2D $x2 $y2)) (Point2D (+ $x1 $x2) (+ $y1 $y2)))
+    |(= (draw (Text $t (Point2D $x $y))) (fillText $t $x $y))
+    |(= (draw (Rect (Point2D $x $y) (Point2D $w $h))) (fillRect $x $y $w $h))
+    |""".stripMargin.strip().split("\n").foreach(evalAdd)
 
   evalAdd("(ground lift \"`fs => fs.map(f => xs => xs.map(f))\")")
   evalAdd("(ground lift_ \"`fs => fs.map(f => xs => xs.flatMap(f))\")")
@@ -311,6 +347,8 @@ extension (inline em: ExprMap[Unit])
   evalAdd("(ground lift2_ \"`fs => fs.map(f => (xs, ys) => xs.flatMap(x => ys.flatMap(y => f(x, y))))\")")
   evalAdd("(ground lift3 \"`fs => fs.map(f => (xs, ys, zs) => xs.flatMap(x => ys.flatMap(y => zs.map(z => f(x, y, z)))))\")")
   evalAdd("(ground lift3_ \"`fs => fs.map(f => (xs, ys, zs) => xs.flatMap(x => ys.flatMap(y => zs.flatMap(z => f(x, y, z)))))\")")
+  evalAdd("(ground lift4 \"`fs => fs.map(f => (xs, ys, zs, ws) => xs.flatMap(x => ys.flatMap(y => zs.map(z => ws.map(w => f(x, y, z, w))))))\")")
+  evalAdd("(ground lift4_ \"`fs => fs.map(f => (xs, ys, zs, ws) => xs.flatMap(x => ys.flatMap(y => zs.flatMap(z => ws.flatMap(w => f(x, y, z, w))))))\")")
   evalAdd("(ground ² (lift \"`x => x*x\"))")
   evalAdd("(² `.1)")
   evalAdd("(ground + (lift2 \"`(x, y) => x+y\"))")
@@ -318,45 +356,65 @@ extension (inline em: ExprMap[Unit])
   evalAdd("(* `.1 `.05)")
   evalAdd("(ground range (lift3_ \"`(start, stop, step) => Array.from({ length: (stop - start) / step }, (_, i) => start + (i * step))\"))")
   evalAdd("(range `0 `10 `1)")
-  evalAdd("(ground count \"`xs => [xs.length]\")")
-  evalAdd("(count (range `0 `10 `1))")
-  evalAdd("(ground randomInt (lift2 \"`(min, max) => min + Math.floor(Math.random() * (max - min + 1))\"))")
-  evalAdd("(randomInt `1 `100)")
-  evalAdd("""(ground sample "`(ns, ar) => ns.flatMap(n => {
-            |  const sample = ar.slice();
-            |  const last = ar.length - 1;
-            |  for (let index = 0; index < n; index++) {
-            |    const rand = index + Math.floor(Math.random() * (last - index + 1));
-            |    const temp = sample[index];
-            |    sample[index] = sample[rand];
-            |    sample[rand] = temp;
-            |  }
-            |  return sample.slice(0, n);
-            |})")""".stripMargin)
-  evalAdd("(sample `3 (range `0 `10 `1))")
-  evalAdd("(+ A B)")
-  evalAdd("(f `3)")
-  evalAdd("(* `1.2 `12)")
-  evalAdd("(* `3.14 (range `0 $n `1))")
-  evalAdd("(upto `3)")
-  evalAdd("(² (upto `3))")
-  evalAdd("(* `1.5 (upto `3))")
-  evalAdd("(Q (upto `3) `1.5)")
-  evalAdd("(* (upto `3) `1.5)")
-  evalAdd("(transform (FONT_SIZE $x) (* `1.2 $x))")
-  evalAdd("(* (transform (FONT_SIZE $x) (* `1.2 $x)) (upto `3))")
-  evalAdd("(positions `3)")
-  evalAdd("(ground logged \"`xs => {console.log('g', xs); return xs; }\")")
-  evalAdd("(logged `\"test\")")
-  evalAdd("(transform (CORNER $x) $x)")
-  evalAdd("(++ (transform (CORNER $x) $x) (positions `3))")
-//  evalAdd("(ground update \"`(xs, ys) => xs.forEach(x => x.replaceChildren(ys)) || xs\")")
-  evalAdd("(ground appendChild (lift2 \"`(x, y) => x.appendChild(y)\"))")
+//  evalAdd("(ground count \"`xs => [xs.length]\")")
+//  evalAdd("(count (range `0 `10 `1))")
+//  evalAdd("(ground randomInt (lift2 \"`(min, max) => min + Math.floor(Math.random() * (max - min + 1))\"))")
+//  evalAdd("(randomInt `1 `100)")
+//  evalAdd("""(ground sample "`(ns, ar) => ns.flatMap(n => {
+//            |  const sample = ar.slice();
+//            |  const last = ar.length - 1;
+//            |  for (let index = 0; index < n; index++) {
+//            |    const rand = index + Math.floor(Math.random() * (last - index + 1));
+//            |    const temp = sample[index];
+//            |    sample[index] = sample[rand];
+//            |    sample[rand] = temp;
+//            |  }
+//            |  return sample.slice(0, n);
+//            |})")""".stripMargin)
+//  evalAdd("(sample `3 (range `0 `10 `1))")
+//  evalAdd("(+ A B)")
+//  evalAdd("(f `3)")
+//  evalAdd("(* `1.2 `12)")
+//  evalAdd("(* `3.14 (range `0 $n `1))")
+//  evalAdd("(upto `3)")
+//  evalAdd("(² (upto `3))")
+//  evalAdd("(* `1.5 (upto `3))")
+//  evalAdd("(Q (upto `3) `1.5)")
+//  evalAdd("(* (upto `3) `1.5)")
+//  evalAdd("(transform (FONT_SIZE $x) (* `1.2 $x))")
+//  evalAdd("(* (transform (FONT_SIZE $x) (* `1.2 $x)) (upto `3))")
+//  evalAdd("(positions `3)")
+//  evalAdd("(ground logged \"`xs => {console.log('g', xs); return xs; }\")")
+//  evalAdd("(logged `\"test\")")
+//  evalAdd("(transform (CORNER $x) $x)")
+//  evalAdd("(++ (transform (CORNER $x) $x) (positions `3))")
+//  evalAdd("(ground replaceChildren \"`(xs, ys) => xs.forEach(x => x.replaceChildren(...ys)) || xs\")")
+//  evalAdd("(ground appendChild (lift2 \"`(x, y) => x.appendChild(y)\"))")
 //  evalAdd("(ground TextNode (lift \"`x => document.createTextNode(x)\"))")
-  evalAdd("(ground TextNode (lift \"`x => document.createTextNode(x)\"))")
-  evalAdd("(appendChild root (TextNode `\"Test\"))")
-  evalAdd("(appendChild root (TextNode (+ (pretty (transform (userOp $i $m $x) $x)) `'\\n')))")
-
+//  evalAdd("(ground TextNode (lift \"`x => document.createTextNode(x)\"))")
+//  evalAdd("(appendChild root (TextNode `\"Test\"))")
+//  evalAdd("(replaceChildren root (TextNode (+ (pretty (transform (userOp $i $m $x) ($i $x))) `'\\n')))")
+//  evalAdd("(appendChild root (TextNode (+ (pretty (transform (userOp $i $m $x) $x)) `'\\n')))")
+  evalAdd("(ground fillText (lift3_ \"`(t, x, y) => ctx.fillText(t, x, y) || []\"))")
+  evalAdd("(ground fillRect (lift4_ \"`(x, y, w, h) => ctx.fillRect(x, y, w, h) || []\"))")
+  evalAdd("""(ground resetCanvas "`_ => {
+            |  const pixel_ratio = window.devicePixelRatio || 1
+            |  ctx.canvas.width = window.innerWidth*pixel_ratio
+            |  ctx.canvas.height = window.innerHeight*pixel_ratio
+            |  ctx.canvas.style.width = window.innerWidth + 'px'
+            |  ctx.canvas.style.height = window.innerHeight + 'px'
+            |  ctx.scale(pixel_ratio, pixel_ratio)
+            |  return []
+            |}")""".stripMargin)
+  evalAdd("(resetCanvas go)")
+  evalAdd("(ground eval (lift \"`x => eval(x)\"))")
+  evalAdd("""(= WIDTH (eval `"ctx.canvas.width"))""")
+  evalAdd("""(= HEIGHT (eval `"ctx.canvas.height"))""")
+  evalAdd("""(eval "`\"ctx.fillStyle = '#222020'\"")""")
+  evalAdd("(draw (Rect (Point2D `0 `0) (Point2D WIDTH HEIGHT)))")
+  evalAdd("""(eval "`\"ctx.fillStyle = '#f0f0f0'\"")""")
+  evalAdd("""(eval "`\"ctx.font = '14px system-ui'\"")""")
+  evalAdd("(draw (transform (userOp $i $m $x) (Text $x (Point2D `40 (+ `50 (* `20 $i))))))")
 
 //  println(ev.evalGrounded(DataParser.sexpr("(eval \"12\")".iterator).get, ()).prettyListing(false))
 //  println(ev.evalGrounded(DataParser.sexpr("(eval \"3.14\")".iterator).get, ()).prettyListing(false))
@@ -386,5 +444,4 @@ extension (inline em: ExprMap[Unit])
   println(pfs)
   println(DataParser.symbols.indexToValue)
   println(DataParser.data.indexToValue)
-
 

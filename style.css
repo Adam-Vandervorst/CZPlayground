@@ -28,10 +28,14 @@ body {
 
 #board {
     white-space: pre-line;
-    margin: 1vw;
+    /*margin: 1vw;*/
     line-height: 200%;
     color: var(--contrast-text);
     font-size: .6em;
+}
+
+#board canvas {
+    image-rendering: pixelated;
 }
 
 .atom {
